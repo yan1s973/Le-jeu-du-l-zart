@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Reptile interactif</title>
+  <style>
+    :root{--bg:#f0f7ef;--panel:#ffffff;--accent:#6aa84f}
+    html,body{height:100%;margin:0;font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial}
+    body{background:linear-gradient(180deg,var(--bg),#e6f3e7);display:flex;align-items:center;justify-content:center}
+    .app{width:980px;max-width:96%;background:var(--panel);box-shadow:0 8px 30px rgba(20,30,20,0.08);border-radius:12px;padding:18px;display:grid;grid-template-columns:1fr 320px;gap:16px}
+
+    /* Canvas area */
+    .env{background:linear-gradient(180deg,#dff0d8 0%, #cde8c9 100%);border-radius:10px;position:relative;overflow:hidden;min-height:560px;display:flex;align-items:center;justify-content:center}
+    .floor{position:absolute;left:0;right:0;bottom:0;height:80px;background:linear-gradient(180deg,#c2e0b6,#9fcf90);box-shadow:inset 0 10px 30px rgba(0,0,0,0.06)}
+
+    /* Lizard (SVG container) */
+    #lizardWrap{position:absolute;touch-action:none;cursor:grab;user-select:none}
+    #lizardWrap.grabbing{cursor:grabbing}
+
+    /* Controls */
+    .controls{padding:8px;display:flex;flex-direction:column;gap:12px}
+    .card{background:linear-gradient(180deg,#fff,#fbfffb);padding:12px;border-radius:10px;box-shadow:0 6px 18px rgba(10,20,10,0.04)}
+    .row{display:flex;gap:8px}
+    button{border:0;background:var(--accent);color:white;padding:8px 12px;border-radius:8px;font-weight:600;cursor:pointer}
+    button.secondary{background:#f0f0f0;color:#222}
+    label{font-size:13px;color:#345}
+    .status{font-size:14px;color:#235;display:flex;flex-direction:column;gap:6px}
+    .meter{height:10px;background:#eee;border-radius:10px;overflow:hidden}
+    .meter>div{height:100%;background:linear-gradient(90deg,#82c91e,#2f8f2f);width:50%}
+
+    /* small helpers */
+    .tiny{font-size:12px;color:#556}
+    .controls h3{margin:0 0 6px 0}
+    .color-swatch{display:flex;gap:6px}
+    .sw{width:30px;height:30px;border-radius:8px;cursor:pointer;border:2px solid rgba(0,0,0,0.06)}
+
+    footer.tips{grid-column:1/-1;text-align:center;color:#6a7;opacity:.9;font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="env" id="env">
+      <div id="lizardWrap" aria-label="Lizard" role="img">
+        <!-- SVG lizard: simple stylable shapes -->
+        <svg id="lizard" width="280" height="160" viewBox="0 0 280 160" xmlns="http://www.w3.org/2000/svg">
+          <!-- tail -->
+          <path id="tail" d="M20 100 C 0 80, 10 40, 60 30 C 120 18, 160 40, 190 55" fill="none" stroke="#4b7a3a" stroke-width="12" stroke-linecap="round" />
+          <!-- body -->
+          <ellipse id="body" cx="190" cy="80" rx="70" ry="38" fill="#6aa84f" />
+          <!-- head -->
+          <ellipse id="head" cx="255" cy="72" rx="28" ry="22" fill="#6aa84f" />
+          <!-- eye -->
+          <circle id="eye" cx="265" cy="66" r="5" fill="#111" />
+          <!-- tongue (hidden) -->
+          <path id="tongue" d="M266 76 q12 8 20 6" stroke="#d94" stroke-width="4" stroke-linecap="round" fill="none" opacity="0" />
+          <!-- legs -->
+          <path class="leg" d="M160 115 q-10 10,-18 18" stroke="#4b7a3a" stroke-width="8" stroke-linecap="round" />
+          <path class="leg" d="M220 115 q10 10,18 18" stroke="#4b7a3a" stroke-width="8" stroke-linecap="round" />
+          <path class="leg" d="M140 50 q-8 -8,-18 -14" stroke="#4b7a3a" stroke-width="8" stroke-linecap="round" />
+          <path class="leg" d="M200 48 q8 -8,18 -14" stroke="#4b7a3a" stroke-width="8" stroke-linecap="round" />
+          <!-- spots -->
+          <g id="spots">
+            <circle cx="160" cy="70" r="6" fill="#3f6b2b" />
+            <circle cx="200" cy="90" r="8" fill="#3f6b2b" />
+            <circle cx="180" cy="60" r="5" fill="#3f6b2b" />
+          </g>
+        </svg>
+      </div>
+      <div class="floor"></div>
+    </div>
+
+    <aside class="controls">
+      <div class="card">
+        <h3>Contrôles</h3>
+        <div class="row tiny">
+          <button id="feedBtn">Donner à manger</button>
+          <button id="petBtn" class="secondary">Caresser</button>
+          <button id="tongueBtn" class="secondary">Tirer la langue</button>
+        </div>
+        <p class="tiny">Touches: flèches pour déplacer | espace pour sauter | D pour nourrir</p>
+      </div>
+
+      <div class="card status">
+        <label>Énergie <span id="energyVal">80%</span></label>
+        <div class="meter"><div id="energyBar" style="width:80%"></div></div>
+        <label>Température <span id="tempVal">28°C</span></label>
+        <input id="tempSlider" type="range" min="15" max="40" value="28" />
+        <div class="tiny">Lézard plus actif si chaud, plus lent si froid.</div>
+      </div>
+
+      <div class="card">
+        <label>Couleur</label>
+        <div class="color-swatch" id="colors">
+          <div class="sw" data-col="#6aa84f" style="background:#6aa84f"></div>
+          <div class="sw" data-col="#8ec1d3" style="background:#8ec1d3"></div>
+          <div class="sw" data-col="#c88a3a" style="background:#c88a3a"></div>
+          <div class="sw" data-col="#8b5e8b" style="background:#8b5e8b"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <label>État</label>
+        <div id="mood">Content</div>
+        <div class="tiny">Clique sur le lézard pour le caresser. Nourris-le pour regagner de l'énergie.</div>
+      </div>
+
+      <div class="card">
+        <label>Options</label>
+        <div class="row">
+          <button id="resetBtn" class="secondary">Réinitialiser</button>
+        </div>
+      </div>
+    </aside>
+
+    <footer class="tips">Astuce: Déplace le lézard avec la souris ou le clavier. Ajuste la température pour voir son comportement.</footer>
+  </div>
+
+  <script>
+    // Basic state
+    const state = {
+      x: 320, y: 280, angle: 0, energy: 80, temp: 28, mood: 'Content', color: '#6aa84f'
+    };
+
+    const wrap = document.getElementById('lizardWrap');
+    const env = document.getElementById('env');
+    const energyBar = document.getElementById('energyBar');
+    const energyVal = document.getElementById('energyVal');
+    const tempSlider = document.getElementById('tempSlider');
+    const tempVal = document.getElementById('tempVal');
+    const moodEl = document.getElementById('mood');
+    const lizard = document.getElementById('lizard');
+    const tongue = document.getElementById('tongue');
+    const feedBtn = document.getElementById('feedBtn');
+    const petBtn = document.getElementById('petBtn');
+    const tongueBtn = document.getElementById('tongueBtn');
+    const resetBtn = document.getElementById('resetBtn');
+
+    // initialize position
+    function applyPosition(){
+      wrap.style.left = state.x + 'px';
+      wrap.style.top = state.y + 'px';
+    }
+    applyPosition();
+
+    // color change
+    document.getElementById('colors').addEventListener('click', e=>{
+      const sw = e.target.closest('.sw'); if(!sw) return;
+      state.color = sw.dataset.col;
+      document.getElementById('body').setAttribute('fill', state.color);
+      document.getElementById('head').setAttribute('fill', state.color);
+      document.querySelectorAll('.leg').forEach(el=>el.setAttribute('stroke', shade(state.color,-20)));
+      document.getElementById('tail').setAttribute('stroke', shade(state.color,-22));
+    });
+
+    // simple color shade helper
+    function shade(hex, percent){
+      const f=parseInt(hex.slice(1),16),t=percent<0?0:255,p=Math.abs(percent)/100;
+      const R=Math.round((t - (f>>16))*p) + (f>>16);
+      const G=Math.round((t - (f>>8 & 0x00FF))*p) + (f>>8 & 0x00FF);
+      const B=Math.round((t - (f & 0x0000FF))*p) + (f & 0x0000FF);
+      return '#'+(0x1000000 + (R<<16) + (G<<8) + B).toString(16).slice(1);
+    }
+
+    // feed
+    feedBtn.addEventListener('click', ()=>{ feed(20); });
+    document.addEventListener('keydown', e=>{ if(e.key.toLowerCase()==='d') feed(20); });
+    function feed(amount){ state.energy = Math.min(100, state.energy + amount); updateUI(); pulse('body',1.06); showMessage('Miam!'); }
+
+    // pet
+    petBtn.addEventListener('click', ()=>{ pet(); });
+    wrap.addEventListener('click', ()=>{ pet(); });
+    function pet(){ state.mood = 'Heureux'; state.energy = Math.min(100, state.energy + 5); updateUI(); pulse('body',1.08); showMessage('Purr...'); }
+
+    // tongue
+    tongueBtn.addEventListener('click', ()=>{ flickTongue(); });
+    function flickTongue(){ tongue.style.transition='opacity 0.08s'; tongue.style.opacity=1; setTimeout(()=>{ tongue.style.opacity=0; },300); }
+
+    // temporary message
+    let msgTimeout=null;
+    function showMessage(t){ moodEl.textContent = t; clearTimeout(msgTimeout); msgTimeout=setTimeout(()=>{ moodEl.textContent = state.mood; },1200); }
+
+    // pulse animation for a part
+    function pulse(id, scale=1.1){ const el = document.getElementById(id); el.style.transition='transform 150ms'; el.style.transform = 'scale('+scale+')'; setTimeout(()=>{ el.style.transform='scale(1)'; },200); }
+
+    // energy/time loop
+    setInterval(()=>{
+      // deplete energy slowly, faster if active (based on temp)
+      const activity = Math.max(0, (state.temp-22)/8); // more active when warm
+      state.energy = Math.max(0, state.energy - 0.02 - activity*0.02);
+      updateUI();
+      // small random moves if energy above threshold
+      if(state.energy>20 && Math.random()<0.02*activity){ wander(); }
+    },100);
+
+    function updateUI(){ energyBar.style.width = state.energy + '%'; energyVal.textContent = Math.round(state.energy) + '%'; tempVal.textContent = state.temp + '°C'; moodEl.textContent = state.mood; }
+
+    // temperature control
+    tempSlider.addEventListener('input', e=>{ state.temp = parseInt(e.target.value,10); updateUI(); adjustActivity(); });
+
+    function adjustActivity(){
+      // change speed visually by adjusting transform/rotation amplitude
+      const t = state.temp;
+      if(t<20) state.mood = 'Lento';
+      else if(t<26) state.mood = 'Calme';
+      else state.mood = 'Alerte';
+      updateUI();
+    }
+
+    // wandering behavior
+    function wander(){ const dx = (Math.random()-0.5)*40; const dy = (Math.random()-0.5)*30; moveBy(dx,dy); }
+
+    // move helpers
+    function moveBy(dx,dy){ state.x = clamp(state.x + dx, 20, env.clientWidth - 160); state.y = clamp(state.y + dy, 40, env.clientHeight - 120); applyPosition(); }
+    function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+    // keyboard control
+    window.addEventListener('keydown', e=>{
+      const step = state.temp>28?18:8; // faster when warm
+      if(e.key==='ArrowLeft'){ moveBy(-step,0); }
+      if(e.key==='ArrowRight'){ moveBy(step,0); }
+      if(e.key==='ArrowUp'){ moveBy(0,-step); }
+      if(e.key==='ArrowDown'){ moveBy(0,step); }
+      if(e.code==='Space'){ hop(); }
+    });
+
+    function hop(){ pulse('lizard',1.02); state.energy = Math.max(0, state.energy - 2); updateUI(); }
+
+    // dragging with mouse/touch
+    let dragging=false, dragOff={x:0,y:0};
+    wrap.addEventListener('pointerdown', e=>{
+      dragging=true; wrap.classList.add('grabbing'); const rect=wrap.getBoundingClientRect(); dragOff.x = e.clientX - rect.left; dragOff.y = e.clientY - rect.top; wrap.setPointerCapture(e.pointerId);
+    });
+    wrap.addEventListener('pointermove', e=>{ if(!dragging) return; state.x = clamp(e.clientX - dragOff.x, 20, env.clientWidth - 160); state.y = clamp(e.clientY - dragOff.y, 40, env.clientHeight - 120); applyPosition(); });
+    wrap.addEventListener('pointerup', e=>{ dragging=false; wrap.classList.remove('grabbing'); try{ wrap.releasePointerCapture(e.pointerId); }catch(e){} });
+
+    // reset
+    resetBtn.addEventListener('click', ()=>{ state.x=320; state.y=280; state.energy=80; state.temp=28; tempSlider.value=28; document.getElementById('body').setAttribute('fill', '#6aa84f'); document.getElementById('head').setAttribute('fill', '#6aa84f'); updateUI(); applyPosition(); });
+
+    // responsive init: center lizard in env
+    function center(){ state.x = Math.round(env.clientWidth/2 - 140); state.y = Math.round(env.clientHeight/2 - 60); applyPosition(); }
+    window.addEventListener('resize', center); center();
+
+    // small accessibility: focus style
+    wrap.tabIndex = 0;
+
+    // make parts selectable for fun: click eye to blink
+    document.getElementById('eye').addEventListener('click', e=>{ e.stopPropagation(); blink(); });
+    function blink(){ const eye = document.getElementById('eye'); eye.style.transition='r 80ms'; eye.setAttribute('r',2); setTimeout(()=>eye.setAttribute('r',5),200); }
+
+    // initial colorization of strokes
+    document.querySelectorAll('.leg').forEach(el=>el.setAttribute('stroke', shade(state.color,-20)));
+    document.getElementById('tail').setAttribute('stroke', shade(state.color,-22));
+    updateUI();
+
+    // small GIF-like animation: tail wag when mood Alerte
+    setInterval(()=>{
+      const ang = (state.mood==='Alerte')? (Math.sin(Date.now()/200)*12) : (Math.sin(Date.now()/800)*5);
+      document.getElementById('tail').setAttribute('transform', 'translate(0,0) rotate('+ang+' 120 50)');
+    },80);
+
+  </script>
+</body>
+</html>
